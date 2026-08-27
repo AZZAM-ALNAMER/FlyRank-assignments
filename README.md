@@ -1,14 +1,39 @@
-# FlyRank-assignments
+# Week-2 Assignment - Task API 
 
-Weekly assignments completed during my AI Engineer Internship at [FlyRank](https://flyrank.ai).
+A small CRUD API for managing a to-do list, built with FastAPI.
+Data is stored in memory (no database yet — that's next week's assignment).
 
-Each assignment is organized by week, documenting the task, approach, and how to run the code.
+## Run it
 
-## About
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
 
-This repository tracks my hands-on work as an AI Engineer Intern at FlyRank — covering
-backend development, APIs, and AI/ML engineering tasks assigned throughout the internship.
+Visit `http://localhost:8000/docs` for interactive Swagger UI.
 
-## Structure
+## Endpoints
 
-Each week's assignment includes its own setup instructions and requirements.
+| Method | Path           | Description              |
+|--------|----------------|---------------------------|
+| GET    | /              | API info                  |
+| GET    | /health        | Health check               |
+| GET    | /tasks         | List all tasks             |
+| GET    | /tasks/{id}    | Get a single task          |
+| POST   | /tasks         | Create a new task          |
+| PUT    | /tasks/{id}    | Update a task               |
+| DELETE | /tasks/{id}    | Delete a task                |
+
+## Example
+
+```bash
+curl -i -X POST http://localhost:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Buy milk"}'
+```
+
+## Swagger UI
+
+![Swagger screenshot](swagger-screenshot.png)
