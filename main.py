@@ -70,3 +70,29 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get("/tasks")
+def get_tasks():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, done FROM tasks")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return [{"id": r[0], "title": r[1], "done": r[2]} for r in rows]
+
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, done FROM tasks WHERE id = %s", (task_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"id": row[0], "title": row[1], "done": row[2]}
