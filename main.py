@@ -96,3 +96,67 @@ def get_task(task_id: int):
     if row is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"id": row[0], "title": row[1], "done": row[2]}
+
+
+
+@app.post("/tasks", status_code=201)
+def create_task(task: TaskCreate):
+    if not task.title or not task.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO tasks (title, done) VALUES (%s, %s) RETURNING id, title, done",
+        (task.title, task.done)
+    )
+    row = cursor.fetchone()
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"id": row[0], "title": row[1], "done": row[2]}
+
+
+@app.put("/tasks/{task_id}")
+def update_task(task_id: int, updated: TaskUpdate):
+    if not updated.title or not updated.title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))
+    if cursor.fetchone() is None:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    cursor.execute(
+        "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING id, title, done",
+        (updated.title, updated.done, task_id)
+    )
+    row = cursor.fetchone()
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return {"id": row[0], "title": row[1], "done": row[2]}
+
+
+@app.delete("/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM tasks WHERE id = %s", (task_id,))
+    if cursor.fetchone() is None:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    cursor.execute("DELETE FROM tasks WHERE id = %s", (task_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return
