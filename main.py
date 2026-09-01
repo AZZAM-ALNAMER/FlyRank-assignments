@@ -88,6 +88,46 @@ def health_check():
     return {"status": "ok"}
 
 
+class AuthCredentials(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/auth/signup", status_code=201)
+def signup(credentials: AuthCredentials):
+    if not credentials.email or not credentials.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    try:
+        result = supabase.auth.sign_up({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"user": result.user}
+
+
+@app.post("/auth/login")
+def login(credentials: AuthCredentials):
+    if not credentials.email or not credentials.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    try:
+        result = supabase.auth.sign_in_with_password({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
+
+    return {
+        "access_token": result.session.access_token,
+        "refresh_token": result.session.refresh_token
+    }
+
+
 # ---------- Tasks: Read ----------
 
 @app.get("/tasks")
