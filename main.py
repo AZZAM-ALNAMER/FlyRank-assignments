@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException , Header
 from pydantic import BaseModel
 from typing import Optional
 import psycopg
 import os
 from dotenv import load_dotenv
 from supabase import create_client, Client
+
 
 load_dotenv()
 
@@ -126,6 +127,21 @@ def login(credentials: AuthCredentials):
         "access_token": result.session.access_token,
         "refresh_token": result.session.refresh_token
     }
+
+@app.get("/public/info")
+def public_info():
+    return {"message": "Welcome stranger! This info is public."}
+
+
+@app.get("/protected/profile")
+def protected_profile(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Access token required")
+
+    token = authorization.split(" ")[1]
+    # Not verifying the token yet — just checking one was sent. Verification is Stage 3.
+
+    return {"message": "Token received, but not yet verified"}
 
 
 # ---------- Tasks: Read ----------
