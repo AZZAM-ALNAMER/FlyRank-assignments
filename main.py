@@ -88,7 +88,8 @@ def read_root():
         "version": "4.0",
         "storage": "PostgreSQL (Docker)",
         "auth": "Supabase",
-        "endpoints": ["/tasks", "/auth/signup", "/auth/login"]
+        "endpoints": ["/tasks", "/auth/signup", "/auth/login", "/auth/logout",
+                      "/public/info", "/protected/profile", "/protected/dashboard"]
     }
 
 @app.get("/health")
@@ -133,16 +134,9 @@ def login(credentials: AuthCredentials):
     }
 
 
-# ---------- Public & Protected routes ----------
+# ---------- Reusable auth dependency (the "guard") ----------
 
-@app.get("/public/info")
-def public_info():
-    return {"message": "Welcome stranger! This info is public."}
-
-
-@app.get("/protected/profile")
-def protected_profile(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    # HTTPBearer automatically extracts and strips the "Bearer " prefix
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
 
     try:
@@ -153,12 +147,39 @@ def protected_profile(credentials: HTTPAuthorizationCredentials = Depends(securi
     if not user_response or not user_response.user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user = user_response.user
+    return user_response.user
+
+
+# ---------- Public & Protected routes ----------
+
+@app.get("/public/info")
+def public_info():
+    return {"message": "Welcome stranger! This info is public."}
+
+
+@app.get("/protected/profile")
+def protected_profile(user=Depends(get_current_user)):
     return {
         "id": user.id,
         "email": user.email,
         "created_at": user.created_at
     }
+
+
+@app.get("/protected/dashboard")
+def protected_dashboard(user=Depends(get_current_user)):
+    return {
+        "message": f"Welcome to your dashboard, {user.email}!"
+    }
+
+
+@app.post("/auth/logout", status_code=204)
+def logout(user=Depends(get_current_user)):
+    try:
+        supabase.auth.sign_out()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return
 
 
 # ---------- Tasks: Read ----------
