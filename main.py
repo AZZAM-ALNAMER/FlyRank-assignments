@@ -1,17 +1,20 @@
-from fastapi import FastAPI, HTTPException , Header
-from pydantic import BaseModel
 from typing import Optional
-import psycopg
 import os
+import psycopg
 from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from supabase import create_client, Client
-
 
 load_dotenv()
 
-app = FastAPI()
+app = FastAPI(title="Task API with Supabase Auth")
 
-# ---------- Database (tasks) config — from Assignment 3 ----------
+# Initialize HTTPBearer security scheme for Swagger UI
+security = HTTPBearer()
+
+# ---------- Database (tasks) config ----------
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -53,7 +56,7 @@ def init_db():
 init_db()
 
 
-# ---------- Supabase (auth) config — new this assignment ----------
+# ---------- Supabase (auth) config ----------
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -70,6 +73,10 @@ class TaskCreate(BaseModel):
 class TaskUpdate(BaseModel):
     title: str
     done: bool
+
+class AuthCredentials(BaseModel):
+    email: str
+    password: str
 
 
 # ---------- Root & health ----------
@@ -89,10 +96,7 @@ def health_check():
     return {"status": "ok"}
 
 
-class AuthCredentials(BaseModel):
-    email: str
-    password: str
-
+# ---------- Auth: Sign Up & Log In ----------
 
 @app.post("/auth/signup", status_code=201)
 def signup(credentials: AuthCredentials):
@@ -128,20 +132,33 @@ def login(credentials: AuthCredentials):
         "refresh_token": result.session.refresh_token
     }
 
+
+# ---------- Public & Protected routes ----------
+
 @app.get("/public/info")
 def public_info():
     return {"message": "Welcome stranger! This info is public."}
 
 
 @app.get("/protected/profile")
-def protected_profile(authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Access token required")
+def protected_profile(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    # HTTPBearer automatically extracts and strips the "Bearer " prefix
+    token = credentials.credentials
 
-    token = authorization.split(" ")[1]
-    # Not verifying the token yet — just checking one was sent. Verification is Stage 3.
+    try:
+        user_response = supabase.auth.get_user(token)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid or expired token: {str(e)}")
 
-    return {"message": "Token received, but not yet verified"}
+    if not user_response or not user_response.user:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = user_response.user
+    return {
+        "id": user.id,
+        "email": user.email,
+        "created_at": user.created_at
+    }
 
 
 # ---------- Tasks: Read ----------
