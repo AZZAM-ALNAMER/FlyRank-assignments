@@ -1,27 +1,45 @@
 import requests
 import time
 import json
+import re
+import hashlib
 from pathlib import Path
 from urllib.parse import urljoin
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
+from pydantic import BaseModel, ValidationError, HttpUrl
 
 # Politeness settings
 USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/YOUR_USERNAME/FlyRank-assignments)"
 TIMEOUT = 10
-DELAY_SECONDS = 0.5  # wait between real requests, never between cache hits
+DELAY_SECONDS = 0.5
 
 CACHE_DIR = Path(__file__).parent.parent / "cache"
+OUTPUT_DIR = Path(__file__).parent.parent / "output"
 CACHE_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 BASE_CATALOGUE_URL = "https://books.toscrape.com/catalogue/page-1.html"
+MAX_CATALOGUE_PAGES = 3  # hard cap — this assignment only scopes the first 3 pages
 
+
+# ---------- Schema (Stage 4) ----------
+
+class Book(BaseModel):
+    title: str
+    product_url: HttpUrl
+    price_gbp: float
+    price_text: str
+    availability_text: str
+    rating_text: str | None
+    description: str | None
+    source_page: HttpUrl
+    fetched_at: str
+
+
+# ---------- Fetching ----------
 
 def fetch_page(url: str, cache_filename: str) -> str:
-    """
-    Fetch a page politely, using a local cache so repeated runs
-    during development don't hammer the real site.
-    """
     cache_path = CACHE_DIR / cache_filename
 
     if cache_path.exists():
@@ -38,62 +56,76 @@ def fetch_page(url: str, cache_filename: str) -> str:
     cache_path.write_text(html, encoding="utf-8")
 
     print(f"FETCH: {cache_filename} ({len(html)} bytes)")
-    time.sleep(DELAY_SECONDS)  # be polite — only delay on real fetches, not cache hits
+    time.sleep(DELAY_SECONDS)
 
     return html
 
 
+# ---------- Discovery ----------
+
 def extract_book_links(catalogue_url: str, html: str) -> list[str]:
-    """
-    Extract every book detail-page link from one catalogue page,
-    converted to absolute URLs.
-    """
     soup = BeautifulSoup(html, "html.parser")
     links = []
-
     for article in soup.select("article.product_pod"):
         a_tag = article.select_one("h3 a")
         if a_tag:
-            relative_href = a_tag["href"]
-            absolute_url = urljoin(catalogue_url, relative_href)
-            links.append(absolute_url)
-
+            links.append(urljoin(catalogue_url, a_tag["href"]))
     return links
 
 
 def get_next_page_url(catalogue_url: str, html: str) -> str | None:
-    """
-    Look for a 'next' link on this catalogue page. Returns the absolute
-    URL of the next page, or None if this is the last page.
-    """
     soup = BeautifulSoup(html, "html.parser")
     next_link = soup.select_one("li.next a")
+    return urljoin(catalogue_url, next_link["href"]) if next_link else None
 
-    if next_link:
-        return urljoin(catalogue_url, next_link["href"])
-    return None
 
+def discover_all_book_links() -> list[tuple[str, str]]:
+    all_pairs = []
+    current_url = BASE_CATALOGUE_URL
+    page_num = 1
+
+    # Hard cap on the while loop itself — cannot exceed MAX_CATALOGUE_PAGES
+    while current_url and page_num <= MAX_CATALOGUE_PAGES:
+        cache_filename = f"catalogue-page-{page_num}.html"
+        html = fetch_page(current_url, cache_filename)
+
+        for link in extract_book_links(current_url, html):
+            all_pairs.append((link, current_url))
+
+        current_url = get_next_page_url(current_url, html)
+        page_num += 1
+
+    print(f"catalogue_pages={page_num - 1}")
+    return all_pairs
+
+
+def dedupe_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    seen = set()
+    unique = []
+    for url, source in pairs:
+        if url not in seen:
+            seen.add(url)
+            unique.append((url, source))
+    return unique
+
+
+# ---------- Extraction ----------
 
 def cache_filename_for_book(book_url: str) -> str:
     """
-    Turn a book URL into a safe local filename for caching,
-    e.g. .../a-light-in-the-attic_1000/index.html -> book-a-light-in-the-attic_1000.html
+    Turn a book URL into a safe, short local filename for caching.
+    Uses a hash instead of the raw slug, since some book titles/URLs
+    are too long for Windows filesystem limits.
     """
-    slug = book_url.rstrip("/").split("/")[-2]
-    return f"book-{slug}.html"
+    url_hash = hashlib.md5(book_url.encode()).hexdigest()[:10]
+    return f"book-{url_hash}.html"
 
 
 def extract_book_details(book_url: str, html: str, source_page: str) -> dict:
-    """
-    Parse one book's detail page and extract the raw fields.
-    No cleaning yet — that's Stage 4. Store exactly what's on the page.
-    """
     soup = BeautifulSoup(html, "html.parser")
 
     title = soup.select_one("div.product_main h1").get_text(strip=True)
-
     price_text = soup.select_one("p.price_color").get_text(strip=True)
-
     availability_text = soup.select_one("p.availability").get_text(strip=True)
 
     rating_tag = soup.select_one("p.star-rating")
@@ -115,40 +147,54 @@ def extract_book_details(book_url: str, html: str, source_page: str) -> dict:
     }
 
 
-def discover_all_book_links() -> list[tuple[str, str]]:
-    """
-    Walk the catalogue starting at page 1, following the 'next' link
-    until there isn't one. Returns a list of (book_url, source_catalogue_page) pairs.
-    """
-    all_pairs = []
-    current_url = BASE_CATALOGUE_URL
-    page_num = 1
+# ---------- Normalization (Stage 4) ----------
 
-    while current_url:
-        cache_filename = f"catalogue-page-{page_num}.html"
-        html = fetch_page(current_url, cache_filename)
+def normalize_record(raw: dict) -> dict:
+    """Convert raw text fields into clean, typed values."""
+    normalized = dict(raw)
 
-        links = extract_book_links(current_url, html)
-        for link in links:
-            all_pairs.append((link, current_url))
+    price_match = re.search(r"[\d.]+", raw["price_text"])
+    normalized["price_gbp"] = float(price_match.group()) if price_match else None
 
-        current_url = get_next_page_url(current_url, html)
-        page_num += 1
-
-    print(f"catalogue_pages={page_num - 1}")
-    return all_pairs
+    return normalized
 
 
-def dedupe_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Remove duplicate book URLs while keeping their source page."""
-    seen = set()
-    unique = []
-    for url, source in pairs:
-        if url not in seen:
-            seen.add(url)
-            unique.append((url, source))
-    return unique
+# ---------- Validation + storage (Stage 4) ----------
 
+def validate_and_store(raw_records: list[dict]):
+    valid_records = []
+    error_records = []
+    seen_urls = set()
+
+    for raw in raw_records:
+        normalized = normalize_record(raw)
+
+        if normalized["product_url"] in seen_urls:
+            continue
+
+        try:
+            book = Book(**normalized)
+            valid_records.append(json.loads(book.model_dump_json()))
+            seen_urls.add(normalized["product_url"])
+        except ValidationError as e:
+            error_records.append({
+                "record": raw,
+                "reason": str(e)
+            })
+
+    books_path = OUTPUT_DIR / "books.json"
+    errors_path = OUTPUT_DIR / "errors.json"
+
+    books_path.write_text(json.dumps(valid_records, indent=2), encoding="utf-8")
+    errors_path.write_text(json.dumps(error_records, indent=2), encoding="utf-8")
+
+    print(f"valid_records={len(valid_records)}")
+    print(f"error_records={len(error_records)}")
+
+    return valid_records, error_records
+
+
+# ---------- Main ----------
 
 if __name__ == "__main__":
     all_pairs = discover_all_book_links()
@@ -156,6 +202,11 @@ if __name__ == "__main__":
 
     unique_pairs = dedupe_pairs(all_pairs)
     print(f"unique_urls={len(unique_pairs)}")
+
+    # Safety cap — this assignment only scopes the first 3 catalogue pages (60 books)
+    if len(unique_pairs) > 60:
+        print(f"WARNING: found {len(unique_pairs)} unique URLs, expected 60 — trimming to first 60")
+        unique_pairs = unique_pairs[:60]
 
     raw_records = []
     for book_url, source_page in unique_pairs:
@@ -165,5 +216,5 @@ if __name__ == "__main__":
         raw_records.append(record)
 
     print(f"detail_pages={len(raw_records)}")
-    print("\nSample record:")
-    print(json.dumps(raw_records[0], indent=2))
+
+    validate_and_store(raw_records)
