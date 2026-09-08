@@ -1,11 +1,13 @@
 import requests
 import time
+import json
 from pathlib import Path
 from urllib.parse import urljoin
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 
 # Politeness settings
-USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/AZZAM-ALNAMER/FlyRank-assignments)"
+USER_AGENT = "FlyRankInternshipA9/1.0 (+https://github.com/YOUR_USERNAME/FlyRank-assignments)"
 TIMEOUT = 10
 DELAY_SECONDS = 0.5  # wait between real requests, never between cache hits
 
@@ -72,13 +74,53 @@ def get_next_page_url(catalogue_url: str, html: str) -> str | None:
     return None
 
 
-def discover_all_book_links() -> list[str]:
+def cache_filename_for_book(book_url: str) -> str:
+    """
+    Turn a book URL into a safe local filename for caching,
+    e.g. .../a-light-in-the-attic_1000/index.html -> book-a-light-in-the-attic_1000.html
+    """
+    slug = book_url.rstrip("/").split("/")[-2]
+    return f"book-{slug}.html"
+
+
+def extract_book_details(book_url: str, html: str, source_page: str) -> dict:
+    """
+    Parse one book's detail page and extract the raw fields.
+    No cleaning yet — that's Stage 4. Store exactly what's on the page.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    title = soup.select_one("div.product_main h1").get_text(strip=True)
+
+    price_text = soup.select_one("p.price_color").get_text(strip=True)
+
+    availability_text = soup.select_one("p.availability").get_text(strip=True)
+
+    rating_tag = soup.select_one("p.star-rating")
+    rating_classes = rating_tag.get("class", [])
+    rating_text = next((c for c in rating_classes if c != "star-rating"), None)
+
+    description_tag = soup.select_one("#product_description ~ p")
+    description = description_tag.get_text(strip=True) if description_tag else None
+
+    return {
+        "title": title,
+        "product_url": book_url,
+        "price_text": price_text,
+        "availability_text": availability_text,
+        "rating_text": rating_text,
+        "description": description,
+        "source_page": source_page,
+        "fetched_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+def discover_all_book_links() -> list[tuple[str, str]]:
     """
     Walk the catalogue starting at page 1, following the 'next' link
-    until there isn't one. Fetches each catalogue page exactly once,
-    and extracts every book link along the way.
+    until there isn't one. Returns a list of (book_url, source_catalogue_page) pairs.
     """
-    all_book_links = []
+    all_pairs = []
     current_url = BASE_CATALOGUE_URL
     page_num = 1
 
@@ -87,18 +129,41 @@ def discover_all_book_links() -> list[str]:
         html = fetch_page(current_url, cache_filename)
 
         links = extract_book_links(current_url, html)
-        all_book_links.extend(links)
+        for link in links:
+            all_pairs.append((link, current_url))
 
         current_url = get_next_page_url(current_url, html)
         page_num += 1
 
     print(f"catalogue_pages={page_num - 1}")
-    return all_book_links
+    return all_pairs
+
+
+def dedupe_pairs(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Remove duplicate book URLs while keeping their source page."""
+    seen = set()
+    unique = []
+    for url, source in pairs:
+        if url not in seen:
+            seen.add(url)
+            unique.append((url, source))
+    return unique
 
 
 if __name__ == "__main__":
-    all_book_links = discover_all_book_links()
-    print(f"discovered={len(all_book_links)}")
+    all_pairs = discover_all_book_links()
+    print(f"discovered={len(all_pairs)}")
 
-    unique_urls = list(dict.fromkeys(all_book_links))  # dedupe, preserve order
-    print(f"unique_urls={len(unique_urls)}")
+    unique_pairs = dedupe_pairs(all_pairs)
+    print(f"unique_urls={len(unique_pairs)}")
+
+    raw_records = []
+    for book_url, source_page in unique_pairs:
+        cache_filename = cache_filename_for_book(book_url)
+        book_html = fetch_page(book_url, cache_filename)
+        record = extract_book_details(book_url, book_html, source_page)
+        raw_records.append(record)
+
+    print(f"detail_pages={len(raw_records)}")
+    print("\nSample record:")
+    print(json.dumps(raw_records[0], indent=2))
