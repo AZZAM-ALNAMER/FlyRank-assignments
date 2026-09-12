@@ -1,12 +1,20 @@
 import os
+from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 load_dotenv()
 
 app = FastAPI(title="Book Enrichment API")
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+model = genai.GenerativeModel(os.environ["GEMINI_MODEL"])
+
+PROMPT_PATH = Path(__file__).parent / "prompts" / "enrich-v1.md"
+SYSTEM_PROMPT = PROMPT_PATH.read_text(encoding="utf-8")
 
 
 # ---------- Schemas ----------
@@ -24,7 +32,7 @@ class EnrichResponse(BaseModel):
 
 # ---------- Endpoint ----------
 
-@app.post("/enrich", response_model=EnrichResponse)
+@app.post("/enrich")
 def enrich_book(request: EnrichRequest):
     if os.getenv("LLM_STUB") == "1":
         return EnrichResponse(
@@ -33,4 +41,12 @@ def enrich_book(request: EnrichRequest):
             confidence=0.5
         )
 
-    raise HTTPException(status_code=501, detail="LLM call not implemented yet (Stage 2)")
+    user_message = f'Input: title="{request.title}", description="{request.description}"\nOutput:'
+
+    response = model.generate_content(
+        [SYSTEM_PROMPT, user_message],
+        generation_config=genai.types.GenerationConfig(temperature=0.2)
+    )
+
+    # Stage 2: just return the raw text for now — parsing/validation comes in Stage 3
+    return {"raw_response": response.text}
