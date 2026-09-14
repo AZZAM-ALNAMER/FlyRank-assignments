@@ -1,0 +1,42 @@
+[
+  {
+    "title": "The Hobbit",
+    "description": "A hobbit goes on an unexpected journey with dwarves to reclaim their homeland from a dragon.",
+    "expected_category": "fiction"
+  },
+  {
+    "title": "A Brief History of Time",
+    "description": "An exploration of cosmology, black holes, and the origins of the universe.",
+    "expected_category": "nonfiction"
+  },
+  {
+    "title": "The Sun and Her Flowers",
+    "description": "A collection of poems exploring love, loss, and healing.",
+    "expected_category": "poetry"
+  },
+  {
+    "title": "Where the Wild Things Are",
+    "description": "A young boy sails to an island of monsters after being sent to bed without supper.",
+    "expected_category": "children"
+  },
+  {
+    "title": "Sapiens",
+    "description": "A history of humankind from the Stone Age to the present, examining how Homo sapiens came to dominate the world.",
+    "expected_category": "nonfiction"
+  },
+  {
+    "title": "The Midnight Library",
+    "description": "A woman finds herself in a library between life and death, able to try out different versions of her life.",
+    "expected_category": "fiction"
+  },
+  {
+    "title": "Untitled Fragment",
+    "description": "loose notes, unclear, no real subject matter, just scattered words",
+    "expected_category": "other"
+  },
+  {
+    "title": "Goodnight Moon",
+    "description": "A young rabbit says goodnight to everything in the room before falling asleep.",
+    "expected_category": "children"
+  }
+]
