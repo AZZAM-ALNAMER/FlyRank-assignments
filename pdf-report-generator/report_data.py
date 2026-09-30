@@ -39,6 +39,15 @@ def get_report_data() -> dict:
     }
 
 
+def create_reports_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
 if __name__ == "__main__":
     data = get_report_data()
     print(json.dumps(data, indent=2))
