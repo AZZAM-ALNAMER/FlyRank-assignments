@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime, date
 from pathlib import Path
+from fastapi import Response
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -30,9 +31,21 @@ class GenerateRequest(BaseModel):
     force: bool = False
 
 
-@app.post("/reports", status_code=201)
-def create_report(body: GenerateRequest):
+@app.post("/reports")
+def create_report(body: GenerateRequest, response: Response):
     conn = get_connection()
+
+    if not body.force:
+        today_prefix = date.today().isoformat()
+        existing = conn.execute(
+            "SELECT id, path, created_at FROM reports WHERE created_at LIKE ? ORDER BY id DESC LIMIT 1",
+            (f"{today_prefix}%",)
+        ).fetchone()
+
+        if existing is not None:
+            conn.close()
+            response.status_code = 200
+            return {"id": existing[0], "file": f"/reports/{existing[0]}/file"}
 
     data = get_report_data()
     books = get_all_books()
@@ -50,8 +63,8 @@ def create_report(body: GenerateRequest):
     report_id = cursor.lastrowid
     conn.close()
 
+    response.status_code = 201
     return {"id": report_id, "file": f"/reports/{report_id}/file"}
-
 
 @app.get("/reports/{report_id}")
 def get_report(report_id: int):
