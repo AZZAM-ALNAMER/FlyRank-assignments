@@ -1,4 +1,4 @@
-#Assignment-4 Auth · Login & protect (Supabase)
+# Assignment-4 Auth · Login & protect (Supabase)
 
 CRUD to-do API (FastAPI + Postgres) with Supabase Auth added: signup, login,
 logout, and protected routes guarded by a reusable token-verification dependency.
